@@ -16,9 +16,19 @@ import { Camera } from 'expo-camera';
 import * as tf from '@tensorflow/tfjs';
 import * as mobilenet from '@tensorflow-models/mobilenet';
 import {cameraWithTensors} from '@tensorflow/tfjs-react-native';
+import {bundleResourceIO} from "@tensorflow/tfjs-react-native";
 
-//disable yellow warnings on EXPO client!
-console.disableYellowBox = true;
+const modelJSON = require("./assets/model.json");
+const modelWeights = require("./assets/group1-shard1of1.bin");
+ 
+const loadModel = async () => {
+  console.log("insideLoad")
+  const model = await tf
+    .loadGraphModel(bundleResourceIO(modelJSON, modelWeights))
+    .catch(e => console.log(e));
+    console.log("afterLoad")
+  return model;
+};
 
 export default function App() {
 
@@ -35,19 +45,8 @@ export default function App() {
   //Tensorflow and Permissions
   const [mobilenetModel, setMobilenetModel] = useState(null);
   const [frameworkReady, setFrameworkReady] = useState(false);
-
-  //defaults
-
-  //if adding more languages, map codes from this list:
-  // https://cloud.google.com/translate/docs/languages
-  const availableLanguages = [
-    { label: 'Hebrew', value: 'he' },
-    { label: 'Arabic', value: 'ar' },
-    { label: 'Mandarin Chinese', value: 'zh' }
-  ];
-  const GoogleTranslateAPI = "https://translation.googleapis.com/language/translate/v2";
-  const GoogleAPIKey = "AIzaSyDP63u3ionKo4rjXUODHEpZAT8Rjwat1xx";
-
+ 
+  
   //TF Camera Decorator
   const TensorCamera = cameraWithTensors(Camera);
 
@@ -56,7 +55,7 @@ export default function App() {
 
   //performance hacks (Platform dependent)
   const textureDims = Platform.OS === "ios"? { width: 1080, height: 1920 } : { width: 1600, height: 1200 };
-  const tensorDims = { width: 152, height: 200 }; 
+  const tensorDims = { width: 224, height: 224 }; 
 
   //-----------------------------
   // Run effect once
@@ -75,10 +74,14 @@ export default function App() {
 
         //we must always wait for the Tensorflow API to be ready before any TF operation...
         await tf.ready();
-
-        //load the mobilenet model and save it in state
-        setMobilenetModel(await loadMobileNetModel());
-
+        console.log("start loading model");
+        const modelJSON = require("./assets/model.json");
+        const modelWeights = require("./assets/group1-shard1of1.bin");
+        const model = await tf.loadGraphModel(bundleResourceIO(modelJSON, modelWeights));;
+        console.log("model");
+        console.log(model);
+        console.log("before set model");
+        setMobilenetModel(model);
         setFrameworkReady(true);
       })();
     }
@@ -107,37 +110,7 @@ export default function App() {
   // with an OAuth key to avoid key tampering. This approach is
   // for instructional purposes ONLY.
   //---------------------------------------------------------------
-  const getTranslation = async (className) => {
-    try {
-      const googleTranslateApiEndpoint = `${GoogleTranslateAPI}?q=${className}&target=${language}&format=html&source=en&model=nmt&key=${GoogleAPIKey}`;
-      console.log(`Attempting to hit Google API Endpoint: ${googleTranslateApiEndpoint}`);
-      
-      const apiCall = await fetch(googleTranslateApiEndpoint);
-      if(!apiCall){ 
-        console.error(`Google API did not respond adequately. Review API call.`);
-        //throw new Error(`Google API did not respond.`);
-        setTranslation(`Cannot get transaction at this time. Please try again later`);
-      }
 
-      //get JSON data
-      let response = await apiCall.json();
-      if(!response.data || !response.data.translations || response.data.translations.length === 0){ 
-        console.error(`Google API unexpected response. ${response}`);
-        //throw new Error(`Google API responded with invalid data.`);
-        setTranslation(`Cannot get transaction at this time. Please try again later`);
-      }
-
-      // we only care about the first occurrence
-      console.log(`Translated text is: ${response.data.translations[0].translatedText}`);
-      setTranslation(response.data.translations[0].translatedText); 
-      setWord(className);
-    } catch (error) {
-      console.error(`Error while attempting to get translation from Google API. Error: ${error}`);
-      setTranslation(`Cannot get transaction at this time. Please try again later`);
-    } 
-
-    setTranslationAvailable(true);
-  }
 
   //-----------------------------------------------------------------
   // Loads the mobilenet Tensorflow model: 
@@ -153,6 +126,8 @@ export default function App() {
   const loadMobileNetModel = async () => {
     const model = await mobilenet.load();
     return model;
+   
+
   }
 
 
@@ -175,21 +150,24 @@ export default function App() {
     if(!tensor) { return; }
 
     //topk set to 1
-    const prediction = await mobilenetModel.classify(tensor, 1);
-    console.log(`prediction: ${JSON.stringify(prediction)}`);
+   // const prediction = await mobilenetModel.classify(tensor, 1);
+   const prediction = await mobilenetModel.predict(tf.cast(tensor.expandDims(0),"float32"));
+    //console.log(`prediction: ${JSON.stringify(prediction)}`);
 
-    if(!prediction || prediction.length === 0) { return; }
+    //if(!prediction || prediction.length === 0) { return; }
     
     //only attempt translation when confidence is higher than 20%
-    if(prediction[0].probability > 0.3) {
+    //if(prediction[0].probability > 0.3) {
 
       //stop looping!
       cancelAnimationFrame(requestAnimationFrameId);
       setPredictionFound(true);
 
       //get translation!
-      await getTranslation(prediction[0].className);
-    }
+      //setWord(prediction[0].className);
+      setWord(prediction[0]);
+      setTranslationAvailable(true);
+    //}
   }
 
   //------------------------------------------------------------------------------
@@ -219,25 +197,7 @@ export default function App() {
     setTranslationAvailable(false);
   }
 
-  //------------------------------------------------------
-  // Helper function to render the language picker
-  //------------------------------------------------------
-  const showLanguageDropdown = () => {
-    return  <View>
-              <RNPickerSelect
-                placeholder={{}}
-                onValueChange={(value) => setLanguage(value)}
-                items={availableLanguages} 
-                value={language}
-                style={pickerSelectStyles}
-                useNativeAndroidPickerStyle={false}
-                Icon={() => {
-                  return <Chevron style={{marginTop: 20, marginRight: 15}} size={1.5} color="gray" />;
-                }}
-              />
-                
-            </View>  
-  }
+  
 
   //----------------------------------------------
   // Helper function to show the Translation View. 
@@ -281,7 +241,6 @@ export default function App() {
                   onReady={(imageAsTensors) => handleCameraStream(imageAsTensors)}
                   autorender={true}
                 />
-                <Text style={styles.legendTextField}>Point to any object and get its {availableLanguages.find(al => al.value === language).label } translation</Text>
             </View>;
   }
 
@@ -294,7 +253,6 @@ export default function App() {
       </View>
 
       <View style={styles.body}>
-        { showLanguageDropdown() }
         {translationAvailable ? showTranslationView() : renderCameraView() }
       </View>  
     </View>

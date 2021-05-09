@@ -8,6 +8,7 @@
     "eject": "expo eject"
   },
   "dependencies": {
+    "@expo/metro-config": "^0.1.65",
     "@react-native-community/async-storage": "^1.11.0",
     "@tensorflow-models/coco-ssd": "^2.1.0",
     "@tensorflow-models/mobilenet": "^2.0.4",
